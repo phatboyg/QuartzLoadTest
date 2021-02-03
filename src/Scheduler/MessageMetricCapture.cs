@@ -12,10 +12,10 @@ namespace Scheduler
         IReportConsumerMetric
     {
         readonly TaskCompletionSource<TimeSpan> _consumeCompleted;
-        readonly ConcurrentBag<ConsumedMessage> _consumedMessages;
+        readonly ConcurrentDictionary<Guid, ConsumedMessage> _consumedMessages;
         readonly long _messageCount;
         readonly TaskCompletionSource<TimeSpan> _sendCompleted;
-        readonly ConcurrentBag<SentMessage> _sentMessages;
+        readonly ConcurrentDictionary<Guid, SentMessage> _sentMessages;
         readonly Stopwatch _stopwatch;
         long _consumed;
         long _sent;
@@ -24,8 +24,8 @@ namespace Scheduler
         {
             _messageCount = settings.MessageCount;
 
-            _consumedMessages = new ConcurrentBag<ConsumedMessage>();
-            _sentMessages = new ConcurrentBag<SentMessage>();
+            _consumedMessages = new ConcurrentDictionary<Guid, ConsumedMessage>();
+            _sentMessages = new ConcurrentDictionary<Guid, SentMessage>();
             _sendCompleted = new TaskCompletionSource<TimeSpan>();
             _consumeCompleted = new TaskCompletionSource<TimeSpan>();
 
@@ -37,11 +37,14 @@ namespace Scheduler
 
         Task IReportConsumerMetric.Consumed<T>(Guid messageId)
         {
-            _consumedMessages.Add(new ConsumedMessage(messageId, _stopwatch.ElapsedTicks));
+            if (_sentMessages.ContainsKey(messageId))
+            {
+                _consumedMessages.TryAdd(messageId, new ConsumedMessage(messageId, _stopwatch.ElapsedTicks));
 
-            long consumed = Interlocked.Increment(ref _consumed);
-            if (consumed == _messageCount)
-                _consumeCompleted.TrySetResult(_stopwatch.Elapsed);
+                long consumed = Interlocked.Increment(ref _consumed);
+                if (consumed == _messageCount)
+                    _consumeCompleted.TrySetResult(_stopwatch.Elapsed);
+            }
 
             return TaskUtil.Completed;
         }
@@ -54,7 +57,7 @@ namespace Scheduler
 
             long ackTimestamp = _stopwatch.ElapsedTicks;
 
-            _sentMessages.Add(new SentMessage(messageId, sendTimestamp, ackTimestamp));
+            _sentMessages.TryAdd(messageId, new SentMessage(messageId, sendTimestamp, ackTimestamp));
 
             long sent = Interlocked.Increment(ref _sent);
             if (sent == _messageCount)
@@ -63,7 +66,7 @@ namespace Scheduler
 
         public MessageMetric[] GetMessageMetrics()
         {
-            return _sentMessages.Join(_consumedMessages, x => x.MessageId, x => x.MessageId,
+            return _sentMessages.Values.Join(_consumedMessages.Values, x => x.MessageId, x => x.MessageId,
                     (sent, consumed) =>
                         new MessageMetric(sent.MessageId, sent.AckTimestamp - sent.SendTimestamp,
                             consumed.Timestamp - sent.SendTimestamp))

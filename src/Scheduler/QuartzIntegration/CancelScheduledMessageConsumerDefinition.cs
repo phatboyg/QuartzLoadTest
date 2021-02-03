@@ -3,6 +3,7 @@ using MassTransit;
 using MassTransit.ConsumeConfigurators;
 using MassTransit.Definition;
 using MassTransit.QuartzIntegration;
+using MassTransit.RabbitMqTransport;
 using MassTransit.Scheduling;
 
 namespace Scheduler.QuartzIntegration
@@ -22,6 +23,11 @@ namespace Scheduler.QuartzIntegration
         protected override void ConfigureConsumer(IReceiveEndpointConfigurator endpointConfigurator,
             IConsumerConfigurator<CancelScheduledMessageConsumer> consumerConfigurator)
         {
+            if (endpointConfigurator is IRabbitMqReceiveEndpointConfigurator rabbit)
+            {
+                rabbit.PrefetchCount = (ushort) (_endpointDefinition.ConcurrentMessageLimit ?? 32);
+            }
+
             consumerConfigurator.Message<CancelScheduledMessage>(m => m.UsePartitioner(_endpointDefinition.Partition, p => p.Message.TokenId));
         }
     }

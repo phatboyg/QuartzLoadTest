@@ -8,13 +8,16 @@ namespace Scheduler.QuartzIntegration
         IEndpointDefinition<ScheduleMessageConsumer>,
         IEndpointDefinition<CancelScheduledMessageConsumer>
     {
+        readonly int _concurrentMessageLimit;
         readonly QuartzConfiguration _configuration;
 
         public QuartzEndpointDefinition(QuartzConfiguration configuration)
         {
             _configuration = configuration;
 
-            Partition = new Partitioner(_configuration.ConcurrentMessageLimit, new Murmur3UnsafeHashGenerator());
+            _concurrentMessageLimit = _configuration.ConcurrentMessageLimit;
+
+            Partition = new Partitioner(_concurrentMessageLimit, new Murmur3UnsafeHashGenerator());
         }
 
         public IPartitioner Partition { get; }
@@ -23,9 +26,9 @@ namespace Scheduler.QuartzIntegration
 
         public virtual bool IsTemporary => false;
 
-        public virtual int? PrefetchCount => default;
+        public virtual int? PrefetchCount => _concurrentMessageLimit;
 
-        public virtual int? ConcurrentMessageLimit => default;
+        public virtual int? ConcurrentMessageLimit => _concurrentMessageLimit;
 
         string IEndpointDefinition.GetEndpointName(IEndpointNameFormatter formatter)
         {
