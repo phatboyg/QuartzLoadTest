@@ -9,6 +9,12 @@ services:
      - "15692:15692"
   sqlserver:
     image: masstransit/sqlserver-quartz:latest
+    user: root # required for volume mapping to work
     ports:
       - 1433:1433
-    
+    volumes:
+     - mssql-server-linux-data:/var/opt/mssql/data
+
+
+volumes:
+  mssql-server-linux-data:

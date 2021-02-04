@@ -3,6 +3,8 @@ using System.Collections.Specialized;
 using MassTransit.Transports.InMemory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Quartz;
+using Quartz.Impl;
 
 namespace Scheduler.QuartzIntegration
 {
@@ -36,27 +38,32 @@ namespace Scheduler.QuartzIntegration
         {
             get
             {
-                var configuration = new NameValueCollection(13)
+                var builder = SchedulerBuilder.Create("AUTO", _options.Value.InstanceName ?? "MassTransit-Scheduler");
+                builder.MisfireThreshold = TimeSpan.FromSeconds(60);
+                var maxConcurrency = _options.Value.ThreadCount ?? 32;
+                builder.UseDefaultThreadPool(options =>
                 {
-                    {"quartz.scheduler.instanceName", _options.Value.InstanceName ?? "MassTransit-Scheduler"},
-                    {"quartz.scheduler.instanceId", "AUTO"},
-                    {"quartz.plugin.timeZoneConverter.type","Quartz.Plugin.TimeZoneConverter.TimeZoneConverterPlugin, Quartz.Plugins.TimeZoneConverter"},
-                    {"quartz.serializer.type", "json"},
-                    {"quartz.threadPool.type", "Quartz.Simpl.SimpleThreadPool, Quartz"},
-                    {"quartz.threadPool.threadCount", (_options.Value.ThreadCount ?? 32).ToString("F0")},
-                    {"quartz.jobStore.misfireThreshold", "60000"},
-                    {"quartz.jobStore.type", "Quartz.Impl.AdoJobStore.JobStoreTX, Quartz"},
-                    {"quartz.jobStore.driverDelegateType", _options.Value.DriverDelegateType ?? "Quartz.Impl.AdoJobStore.SqlServerDelegate, Quartz"},
-                    {"quartz.jobStore.tablePrefix", _options.Value.TablePrefix ?? "QRTZ_"},
-                    {"quartz.jobStore.dataSource", "default"},
-                    {"quartz.jobStore.clustered", $"{_options.Value.Clustered ?? true}"},
-                    {"quartz.dataSource.default.provider", _options.Value.Provider ?? "SqlServer"},
+                    options.MaxConcurrency = maxConcurrency;
+                });
+                builder.UsePersistentStore(options =>
+                {
+                    options.UseProperties = true;
+                    options.UseJsonSerializer();
+                    var connectionString = _options.Value.ConnectionString ??
+                                           "Server=tcp:localhost;Database=quartznet;Persist Security Info=False;User ID=sa;Password=Quartz!DockerP4ss;Encrypt=False;TrustServerCertificate=True;";
+                    options.UseSqlServer(connectionString);
+
+                    if (_options.Value.Clustered ?? true)
                     {
-                        "quartz.dataSource.default.connectionString", _options.Value.ConnectionString ??
-                        "Server=tcp:localhost;Database=quartznet;Persist Security Info=False;User ID=sa;Password=Quartz!DockerP4ss;Encrypt=False;TrustServerCertificate=True;"
-                    },
-                    {"quartz.jobStore.useProperties", "true"}
-                };
+                        options.UseClustering();
+                    }
+                });
+                builder.UseTimeZoneConverter();
+
+                var batchSize = maxConcurrency;
+                builder.SetProperty(StdSchedulerFactory.PropertySchedulerMaxBatchSize, batchSize.ToString());
+
+                var configuration = builder.Properties;
 
                 foreach (var key in configuration.AllKeys)
                 {
